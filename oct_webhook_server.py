@@ -9,8 +9,6 @@ import datetime
 import sqlite3
 import hashlib
 import os
-import yaml
-import tempfile
 import uvicorn
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,22 +21,15 @@ CONVERSION_ACTION_ID = os.environ.get("GOOGLE_ADS_CONVERSION_ACTION_ID", "754797
 
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "leads.db")
 
-# Google Ads YAML을 환경변수에서 생성
-def get_google_ads_yaml_path():
-    config = {
-        "developer_token": os.environ.get("GOOGLE_ADS_DEVELOPER_TOKEN", ""),
-        "client_id": os.environ.get("GOOGLE_ADS_CLIENT_ID", ""),
-        "client_secret": os.environ.get("GOOGLE_ADS_CLIENT_SECRET", ""),
-        "refresh_token": os.environ.get("GOOGLE_ADS_REFRESH_TOKEN", ""),
-        "login_customer_id": CUSTOMER_ID,
-        "use_proto_plus": True,
-    }
-    path = os.path.join(tempfile.gettempdir(), "google-ads.yaml")
-    with open(path, "w") as f:
-        yaml.dump(config, f)
-    return path
-
-YAML_FILE = get_google_ads_yaml_path()
+# Google Ads 설정을 환경변수에서 dict로 로드
+GOOGLE_ADS_CONFIG = {
+    "developer_token": os.environ.get("GOOGLE_ADS_DEVELOPER_TOKEN", ""),
+    "client_id": os.environ.get("GOOGLE_ADS_CLIENT_ID", ""),
+    "client_secret": os.environ.get("GOOGLE_ADS_CLIENT_SECRET", ""),
+    "refresh_token": os.environ.get("GOOGLE_ADS_REFRESH_TOKEN", ""),
+    "login_customer_id": CUSTOMER_ID,
+    "use_proto_plus": True,
+}
 
 app = FastAPI(title="Implant OCT Webhook Server")
 
@@ -123,7 +114,7 @@ def normalize_phone(phone: str) -> str:
 
 
 def upload_oct(phone: str, conversion_time: str):
-    client = GoogleAdsClient.load_from_storage(YAML_FILE)
+    client = GoogleAdsClient.load_from_dict(GOOGLE_ADS_CONFIG)
     conversion_upload_service = client.get_service("ConversionUploadService")
     conversion_action_service = client.get_service("ConversionActionService")
 
