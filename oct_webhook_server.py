@@ -113,7 +113,7 @@ def normalize_phone(phone: str) -> str:
     return "+" + digits
 
 
-def upload_oct(phone: str, conversion_time: str):
+def upload_oct(phone: str, conversion_time: str, gclid: str = ""):
     client = GoogleAdsClient.load_from_dict(GOOGLE_ADS_CONFIG)
     conversion_upload_service = client.get_service("ConversionUploadService")
     conversion_action_service = client.get_service("ConversionActionService")
@@ -126,6 +126,12 @@ def upload_oct(phone: str, conversion_time: str):
     click_conversion.conversion_action = conversion_action_resource
     click_conversion.conversion_date_time = conversion_time
 
+    # gclid가 있으면 직접 매칭 (가장 정확)
+    if gclid:
+        click_conversion.gclid = gclid
+        print(f"[OCT] gclid 사용: {gclid[:20]}...")
+
+    # 전화번호 해시도 항상 포함 (보조 매칭)
     normalized = normalize_phone(phone)
     phone_hash = hashlib.sha256(normalized.encode()).hexdigest()
 
@@ -210,7 +216,9 @@ async def receive_imweb_webhook(request: Request):
     phone = ""
     phone_parts = {}
 
-    skip_keys = {"board_code", "board_name", "unit_code", "widget_code", "write_token", "write_token_key"}
+    gclid = body.get("gclid", "").strip()
+
+    skip_keys = {"board_code", "board_name", "unit_code", "widget_code", "write_token", "write_token_key", "gclid"}
 
     for k, v in body.items():
         val = str(v).strip() if v else ""
@@ -234,7 +242,7 @@ async def receive_imweb_webhook(request: Request):
     if not phone:
         return {"status": "error", "message": "전화번호를 찾을 수 없습니다"}
 
-    print(f"[아임웹] 추출 → 이름: {name}, 전화번호: ***{phone[-4:]}")
+    print(f"[아임웹] 추출 → 이름: {name}, 전화번호: ***{phone[-4:]}, gclid: {gclid[:20] if gclid else 'none'}")
 
     if is_duplicate(phone):
         return {"status": "duplicate", "message": "이미 등록된 전화번호입니다"}
@@ -246,7 +254,7 @@ async def receive_imweb_webhook(request: Request):
     conversion_time = now.strftime("%Y-%m-%d %H:%M:%S+09:00")
 
     try:
-        upload_oct(phone, conversion_time)
+        upload_oct(phone, conversion_time, gclid=gclid)
         mark_oct_sent(lead_id)
         oct_status = "sent"
     except GoogleAdsException as gae:
