@@ -63,6 +63,8 @@ def init_db():
         "phone_hash": "ALTER TABLE leads ADD COLUMN phone_hash TEXT",
         "oct_sent": "ALTER TABLE leads ADD COLUMN oct_sent INTEGER DEFAULT 0",
         "oct_sent_at": "ALTER TABLE leads ADD COLUMN oct_sent_at TEXT",
+        "landing_url": "ALTER TABLE leads ADD COLUMN landing_url TEXT DEFAULT ''",
+        "utm_source": "ALTER TABLE leads ADD COLUMN utm_source TEXT DEFAULT ''",
     }
     for col, sql in migrations.items():
         if col not in existing:
@@ -80,14 +82,14 @@ def is_duplicate(phone: str) -> bool:
     return row is not None
 
 
-def save_lead(name: str, phone: str) -> int:
+def save_lead(name: str, phone: str, landing_url: str = "", utm_source: str = "") -> int:
     now = datetime.datetime.now().isoformat()
     phone_hash = hashlib.sha256(phone.encode()).hexdigest()
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute(
-        "INSERT INTO leads (name, phone, phone_hash, created_at) VALUES (?, ?, ?, ?)",
-        (name, phone, phone_hash, now),
+        "INSERT INTO leads (name, phone, phone_hash, created_at, landing_url, utm_source) VALUES (?, ?, ?, ?, ?, ?)",
+        (name, phone, phone_hash, now, landing_url, utm_source),
     )
     lead_id = c.lastrowid
     conn.commit()
@@ -218,8 +220,10 @@ async def receive_imweb_webhook(request: Request):
     phone_parts = {}
 
     gclid = body.get("gclid", "").strip()
+    landing_url = body.get("landing_url", "").strip()
+    utm_source = body.get("utm_source", "").strip()
 
-    skip_keys = {"board_code", "board_name", "unit_code", "widget_code", "write_token", "write_token_key", "gclid"}
+    skip_keys = {"board_code", "board_name", "unit_code", "widget_code", "write_token", "write_token_key", "gclid", "landing_url", "utm_source"}
 
     for k, v in body.items():
         val = str(v).strip() if v else ""
@@ -243,12 +247,12 @@ async def receive_imweb_webhook(request: Request):
     if not phone:
         return {"status": "error", "message": "전화번호를 찾을 수 없습니다"}
 
-    print(f"[아임웹] 추출 → 이름: {name}, 전화번호: ***{phone[-4:]}, gclid: {gclid[:20] if gclid else 'none'}")
+    print(f"[아임웹] 추출 → 이름: {name}, 전화번호: ***{phone[-4:]}, gclid: {gclid[:20] if gclid else 'none'}, LP: {landing_url[:50] if landing_url else 'none'}, utm: {utm_source or 'none'}")
 
     if is_duplicate(phone):
         return {"status": "duplicate", "message": "이미 등록된 전화번호입니다"}
 
-    lead_id = save_lead(name, phone)
+    lead_id = save_lead(name, phone, landing_url=landing_url, utm_source=utm_source)
     print(f"[아임웹] 신규 리드: #{lead_id} {name} / ***{phone[-4:]}")
 
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
@@ -271,11 +275,11 @@ async def receive_imweb_webhook(request: Request):
 def get_leads():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("SELECT id, name, phone, oct_sent, created_at FROM leads ORDER BY id DESC LIMIT 100")
+    c.execute("SELECT id, name, phone, oct_sent, created_at, landing_url, utm_source FROM leads ORDER BY id DESC LIMIT 100")
     rows = c.fetchall()
     conn.close()
     return [
-        {"id": r[0], "name": r[1], "phone_last4": r[2][-4:] if r[2] else "", "oct_sent": bool(r[3]), "created_at": r[4]}
+        {"id": r[0], "name": r[1], "phone_last4": r[2][-4:] if r[2] else "", "oct_sent": bool(r[3]), "created_at": r[4], "landing_url": r[5] or "", "utm_source": r[6] or ""}
         for r in rows
     ]
 
